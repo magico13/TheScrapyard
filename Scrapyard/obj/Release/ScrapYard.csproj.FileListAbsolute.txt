@@ -1,0 +1,5 @@
+C:\Steam\SteamApps\common\Kerbal Space Program\GameData\Scrapyard\ScrapYard.dll
+C:\Steam\SteamApps\common\Kerbal Space Program\GameData\Scrapyard\ScrapYard.pdb
+C:\Users\Sami\Documents\GitHub\ScrapYard\ScrapYard\obj\Release\ScrapYard.dll
+C:\Users\Sami\Documents\GitHub\ScrapYard\ScrapYard\obj\Release\ScrapYard.pdb
+C:\Users\Sami\Documents\GitHub\ScrapYard\ScrapYard\obj\Release\ScrapYard.csprojResolveAssemblyReference.cache
