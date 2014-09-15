@@ -52,7 +52,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="EditPartListPrefab.cs" />
     <Compile Include="Scrapyard.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
