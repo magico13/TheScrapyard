@@ -60,6 +60,8 @@ namespace Scrapyard
                         TankMissingFormat = "{4} {2}\n", // {4} = resource code
                         TankFormat = "{4} {2}\n";
         public Boolean recoverResources = true;
+        Boolean recoverVesselParts = false;
+        public Boolean RecoverPartsFromVessels { get { return recoverVesselParts; } }
         public static Resource_Display resourceDisplay = Resource_Display.Detail;
         #endregion
 
@@ -122,7 +124,7 @@ namespace Scrapyard
         public void Store(Part part)
         {
             Parts.Add(part.partInfo.name);
-            foreach (Part P in part.children) Store(P);
+            foreach (Part P in part.children) Store(P); //Won't this have weird recursion issues? Each child will store all of its children, which will store their children, and so on.
         }
         /// <summary>
         /// Retrieves a construct from the inventory, recursing on all subparts
@@ -192,11 +194,15 @@ namespace Scrapyard
         /// <param name="vessel"></param>
         public void RecoverVessel(ProtoVessel vessel)
         {
+            if (!RecoverPartsFromVessels)
+                return;
             foreach (ProtoPartSnapshot P in vessel.protoPartSnapshots)
             {
                 // recover part
-                Parts.Add(P.partInfo.name);
-                Funding.Instance.Funds -= getPartRawPrice(P.partInfo);
+                string TweakScaleSize = GetTweakScaleSize(P); //Made this support TweakScale
+                string fullName = P.partInfo.name + (TweakScaleSize != "" ? ", " + TweakScaleSize : "");
+                Parts.Add(fullName);
+                Funding.Instance.Funds -= getPartRawPrice(P);
 
                 // recover part's resources
                 if (recoverResources) foreach (ProtoPartResourceSnapshot res in P.resources)
@@ -213,6 +219,11 @@ namespace Scrapyard
             }
         }
 
+        public Boolean RequestDefaultRecoveryActivation()
+        {
+            recoverVesselParts = true;
+            return RecoverPartsFromVessels;
+        }
 
         /// <summary>
         /// Recursively count all the parts in P
@@ -307,6 +318,43 @@ namespace Scrapyard
                 }
             }
             return price;
+        }
+        public static float getPartRawPrice(ProtoPartSnapshot P)
+        {
+            float dryCost, fuelCost;
+            ShipConstruction.GetPartCosts(P, P.partInfo, out dryCost, out fuelCost);
+            return dryCost;
+        }
+        public static string GetTweakScaleSize(ConfigNode partNode)
+        {
+            string partSize = "";
+            if (partNode.HasNode("MODULE"))
+            {
+                ConfigNode[] Modules = partNode.GetNodes("MODULE");
+                if (Modules.Length > 0 && Modules.FirstOrDefault(mod => mod.GetValue("name") == "TweakScale") != null)
+                {
+                    ConfigNode tsCN = Modules.First(mod => mod.GetValue("name") == "TweakScale");
+                    string defaultScale = tsCN.GetValue("defaultScale");
+                    string currentScale = tsCN.GetValue("currentScale");
+                    if (!defaultScale.Equals(currentScale))
+                        partSize = currentScale;
+                }
+            }
+            return partSize;
+        }
+        public static string GetTweakScaleSize(ProtoPartSnapshot partSnapshot)
+        {
+            string partSize = "";
+            ProtoPartModuleSnapshot tweakscale = partSnapshot.modules.Find(mod => mod.moduleName == "TweakScale");
+            if (tweakscale != null)
+            {
+                ConfigNode tsCN = tweakscale.moduleValues;
+                string defaultScale = tsCN.GetValue("defaultScale");
+                string currentScale = tsCN.GetValue("currentScale");
+                if (!defaultScale.Equals(currentScale))
+                    partSize = "," + currentScale;
+            }
+            return partSize;
         }
         #endregion
     }
