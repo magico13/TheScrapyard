@@ -60,8 +60,6 @@ namespace Scrapyard
                         TankMissingFormat = "{4} {2}\n", // {4} = resource code
                         TankFormat = "{4} {2}\n";
         public Boolean recoverResources = true;
-        Boolean recoverVesselParts = false;
-        public Boolean RecoverPartsFromVessels { get { return recoverVesselParts; } }
         public static Resource_Display resourceDisplay = Resource_Display.Detail;
         #endregion
 
@@ -118,47 +116,22 @@ namespace Scrapyard
 
         #region Utility functions
         /// <summary>
-        /// Stores a construct into the inventory, recursing on all subparts
-        /// </summary>
-        /// <param name="part">The root part from which recursion starts</param>
-        public void Store(Part part)
-        {
-            Parts.Add(part.partInfo.name);
-            foreach (Part P in part.children) Store(P); //Won't this have weird recursion issues? Each child will store all of its children, which will store their children, and so on.
-        }
-        /// <summary>
-        /// Retrieves a construct from the inventory, recursing on all subparts
-        /// </summary>
-        /// <param name="part">The root part from which recursion starts</param>
-        public void Retrieve(Part part)
-        {
-            Parts.Remove(part.partInfo.name);
-            foreach (Part P in part.children) Retrieve(P);
-        }
-
-        /// <summary>
         /// Ship is rolled out, remove all parts present in the inventory and refund them
         /// </summary>
         /// <param name="construct"></param>
         public void  RolloutVessel(ShipConstruct construct) {
-            String txt = "The following parts were in your inventory and were refunded :\n";
             float totalRefund = 0;           
 
-            // Refund raw part price
-            Dictionary<AvailablePart, int> parts = ListAllParts(construct.Parts);
-            foreach (AvailablePart P in parts.Keys)
+            // Refund raw part price. Now supports TweakScale and other mods that alter prices after load
+            foreach (Part P in construct.Parts)
             {
-                float rawprice = getPartRawPrice(P),
-                    qty_on_ship = parts[P],
-                    qty_in_store = (int)Parts.Get(P.name),
-                    qty_used = Math.Min(qty_on_ship, qty_in_store);
-
-                Parts.Set(P.name, Math.Max(0, qty_in_store - qty_on_ship));
-                if (qty_used > 0)
+                string partName = NameWithTS(P.protoPartSnapshot);
+                float rawPrice = getPartRawPrice(P);
+                int qty_in_store = (int)Parts.Get(partName);
+                if (qty_in_store > 0)
                 {
-                    float Refund = qty_used * rawprice;
-                    txt += String.Format("{0} * {1} = {2}$\n", (int)qty_used, P.title, (int)Refund);
-                    totalRefund += Refund;
+                    Parts.Remove(partName);
+                    totalRefund += rawPrice;
                 }
             }
 
@@ -178,7 +151,6 @@ namespace Scrapyard
 
                         if (qty_used > 0)
                         {
-                            txt += String.Format("{1} * {0} * {2}$ = {3}$\n", R, qty_on_ship, unitCost, qty_on_ship * unitCost);
                             Resources.Set(R, Math.Max(0, qty_in_store - qty_on_ship));
                             totalRefund += (float)qty_used * getResourcePrice(R);
                         }
@@ -186,7 +158,6 @@ namespace Scrapyard
                 }
             }
             Funding.Instance.Funds += totalRefund;
-            if (totalRefund > 0) PopupDialog.SpawnPopupDialog("You were refunded " + totalRefund + "$", txt, "ok!", false, HighLogic.Skin);
         }
         /// <summary>
         /// Ship has been recovered, store all parts and resources and cancel the stock refund.
@@ -194,15 +165,17 @@ namespace Scrapyard
         /// <param name="vessel"></param>
         public void RecoverVessel(ProtoVessel vessel)
         {
-            if (!RecoverPartsFromVessels)
-                return;
+            //Need to know the distance to cancel out the refund correctly
+            double distanceFromKSC = SpaceCenter.Instance.GreatCircleDistance(SpaceCenter.Instance.cb.GetRelSurfaceNVector(vessel.latitude, vessel.longitude));
+            double maxDist = SpaceCenter.Instance.cb.Radius * Math.PI;
+            float recoveryPercent = Mathf.Lerp(0.98f, 0.1f, (float)(distanceFromKSC / maxDist));
+
             foreach (ProtoPartSnapshot P in vessel.protoPartSnapshots)
             {
                 // recover part
-                string TweakScaleSize = GetTweakScaleSize(P); //Made this support TweakScale
-                string fullName = P.partInfo.name + (TweakScaleSize != "" ? ", " + TweakScaleSize : "");
+                string fullName = NameWithTS(P);
                 Parts.Add(fullName);
-                Funding.Instance.Funds -= getPartRawPrice(P);
+                Funding.Instance.Funds -= (getPartRawPrice(P) * recoveryPercent);
 
                 // recover part's resources
                 if (recoverResources) foreach (ProtoPartResourceSnapshot res in P.resources)
@@ -213,54 +186,13 @@ namespace Scrapyard
                     if (unitCost != 0)
                     {
                         Resources.Add(res.resourceName, amount);
-                        Funding.Instance.Funds -= unitCost * amount;
+                        Funding.Instance.Funds -= (unitCost * amount * recoveryPercent);
                     }
                 }
             }
         }
 
-        public Boolean RequestDefaultRecoveryActivation()
-        {
-            recoverVesselParts = true;
-            return RecoverPartsFromVessels;
-        }
-
-        /// <summary>
-        /// Recursively count all the parts in P
-        /// </summary>
-        /// <param name="dic">total is stored in this dictionnay</param>
-        /// <param name="P">current part being scanned</param>
-        public static Dictionary<AvailablePart, int> ListAllParts(Part P, Dictionary<AvailablePart, int> dic = null)
-        {
-            if (dic == null) dic = new Dictionary<AvailablePart, int>();
-            AvailablePart id = P.partInfo;
-            int qty = 1 + P.symmetryCounterparts.Count;
-            if (dic.ContainsKey(id)) dic[id] += qty;
-            else dic[id] = qty;
-
-
-            PartResource r;
-            foreach (Part C in P.children) ListAllParts(C, dic);
-            return dic;
-        }
-        /// <summary>
-        /// Count all the parts in a list of parts. This process is not recursive.
-        /// </summary>
-        /// <param name="list">list of parts to count</param>
-        /// <returns>A dictionnary containing the Available parts and their quantity</returns>
-        public static Dictionary<AvailablePart, int> ListAllParts(List<Part> list)
-        {
-            Dictionary<AvailablePart, int> result = new Dictionary<AvailablePart, int>();
-
-            foreach (Part P in list)
-            {
-                AvailablePart id = P.partInfo;
-                if (result.ContainsKey(id)) result[id] += 1;
-                else result[id] = 1;
-            }
-            return result;
-        }
-        public static Dictionary<string, double> ListAllResources(List<Part> list)
+        public Dictionary<string, double> ListAllResources(List<Part> list)
         {
             Dictionary<string, double> result = new Dictionary<string, double>();
             foreach (Part P in list)
@@ -275,19 +207,73 @@ namespace Scrapyard
             }
             return result;
         }
-        public static Boolean isExperimental(AvailablePart myPart)
+        public float TotalVesselCostAfterInventory(List<Part> VesselParts)
+        {
+            float costRefunded = 0, totalCost = 0;
+            Dictionary<string, float> InventoryCopy = new Dictionary<string,float>(Parts.List);
+            foreach (Part P in VesselParts)
+            {
+                string partName = NameWithTS(P.protoPartSnapshot);
+                float rawPrice = getPartRawPrice(P);
+                int qty_in_store = (int)  (InventoryCopy.ContainsKey(partName) ? InventoryCopy[partName] : 0);
+                if (qty_in_store > 0)
+                {
+                    InventoryCopy.Remove(partName);
+                    costRefunded += rawPrice;
+                }
+                totalCost += rawPrice;
+            }
+
+            Dictionary<string, float> ResourceCopy = new Dictionary<string, float>(Resources.List);
+            if (recoverResources)
+            {
+                Dictionary<string, double> resources = ListAllResources(VesselParts);
+                foreach (string R in resources.Keys)
+                {
+                    float price = getResourcePrice(R);
+                    if (price != 0)
+                    {
+                        float qty_on_ship = (float)resources[R],
+                            qty_in_store = (ResourceCopy.ContainsKey(R) ? ResourceCopy[R] : 0),
+                            qty_used = Math.Min(qty_on_ship, qty_in_store);
+
+                        if (qty_used > 0)
+                        {
+                            ResourceCopy[R] = (qty_in_store - qty_used);
+                            costRefunded += (float)qty_used * price;
+                        }
+                        totalCost += (qty_used * price);
+                    }
+                }
+            }
+            return (totalCost - costRefunded);
+        }
+        public Dictionary<string, int> PartListToDict(List<Part> list)
+        {
+            Dictionary<string, int> dic = new Dictionary<string,int>();
+            foreach (Part P in list)
+            {
+                string name = NameWithTS(P.protoPartSnapshot);
+                if (dic.ContainsKey(name))
+                    ++dic[name];
+                else
+                    dic.Add(name, 1);
+            }
+            return dic;
+        }
+        public Boolean isExperimental(AvailablePart myPart)
         {
             return ResearchAndDevelopment.GetTechnologyState(myPart.TechRequired) != RDTech.State.Available;
         }
-        public static Boolean hasResourceCode(string name)
+        public Boolean hasResourceCode(string name)
         {
             return resourceCodes.ContainsKey(name);
         }
-        public static Boolean isResource(string name)
+        public Boolean isResource(string name)
         {
             return PartResourceLibrary.Instance != null && PartResourceLibrary.Instance.resourceDefinitions[name] != null;
         }
-        public static string getResourceCode(string name)
+        public string getResourceCode(string name)
         {
             if (String.IsNullOrEmpty(name))
             {
@@ -297,35 +283,27 @@ namespace Scrapyard
             }
             else return "Xx";
         }
-        public static float getResourcePrice(string R)
+        public float getResourcePrice(string R)
         {
             return isResource(R)? PartResourceLibrary.Instance.resourceDefinitions[R].unitCost:0;
         }
-        public static float getPartRawPrice(AvailablePart P)
+        public float getPartRawPrice(Part P)
         {
-            float price = P.cost;
-            foreach (AvailablePart.ResourceInfo ri in P.resourceInfos)
-            {
-                int idx = ri.info.LastIndexOf("Cost:");
-                if (idx != -1)
-                {
-                    string coststr = ri.info.Substring(idx + 5);
-                    float c = 0;
-                    if (float.TryParse(coststr, out c))
-                    {
-                        price -= c;
-                    }
-                }
-            }
-            return price;
+            return getPartRawPrice(P.protoPartSnapshot);
         }
-        public static float getPartRawPrice(ProtoPartSnapshot P)
+        public float getPartRawPrice(ProtoPartSnapshot P)
         {
             float dryCost, fuelCost;
             ShipConstruction.GetPartCosts(P, P.partInfo, out dryCost, out fuelCost);
             return dryCost;
         }
-        public static string GetTweakScaleSize(ConfigNode partNode)
+        public AvailablePart GetAvailablePartByName(string partName)
+        {
+            return PartLoader.LoadedPartsList.FirstOrDefault(p => p.name == partName);
+        }
+
+        //The following is all tweakscale info
+        public string GetTweakScaleSize(ConfigNode partNode)
         {
             string partSize = "";
             if (partNode.HasNode("MODULE"))
@@ -342,7 +320,7 @@ namespace Scrapyard
             }
             return partSize;
         }
-        public static string GetTweakScaleSize(ProtoPartSnapshot partSnapshot)
+        public string GetTweakScaleSize(ProtoPartSnapshot partSnapshot)
         {
             string partSize = "";
             ProtoPartModuleSnapshot tweakscale = partSnapshot.modules.Find(mod => mod.moduleName == "TweakScale");
@@ -352,9 +330,18 @@ namespace Scrapyard
                 string defaultScale = tsCN.GetValue("defaultScale");
                 string currentScale = tsCN.GetValue("currentScale");
                 if (!defaultScale.Equals(currentScale))
-                    partSize = "," + currentScale;
+                    partSize = currentScale;
             }
             return partSize;
+        }
+        public string StripTweakScaleInfo(string partName)
+        {
+            return partName.Split(',')[0];
+        }
+        public string NameWithTS(ProtoPartSnapshot PPS)
+        {
+            string tweakscaleSize = GetTweakScaleSize(PPS);
+            return PPS.partInfo.name + (tweakscaleSize != "" ? "," + tweakscaleSize : "");
         }
         #endregion
     }
