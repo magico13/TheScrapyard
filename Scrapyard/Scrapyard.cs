@@ -13,7 +13,9 @@ namespace Scrapyard
 
     public class Catalog
     {
-        public Dictionary<string, float> List = new Dictionary<string, float>();
+        private Dictionary<string, float> List = new Dictionary<string, float>();
+        public Dictionary<string, float> Inventory { get { return List; } } //You can read the inventory but can't write to it. May need to make a copy of the List, but not positive.
+        //ALL interactions with the List must go through "official channels" for API purposes
 
         public void Add(string key, float qty = 1)
         {
@@ -299,7 +301,7 @@ namespace Scrapyard
         }
         public AvailablePart GetAvailablePartByName(string partName)
         {
-            return PartLoader.LoadedPartsList.FirstOrDefault(p => p.name == partName);
+            return PartLoader.LoadedPartsList.FirstOrDefault(p => p.name == StripTweakScaleInfo(partName));
         }
 
         //The following is all tweakscale info
