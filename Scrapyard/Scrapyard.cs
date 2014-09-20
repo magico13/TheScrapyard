@@ -176,6 +176,9 @@ namespace Scrapyard
             double maxDist = SpaceCenter.Instance.cb.Radius * Math.PI;
             float recoveryPercent = Mathf.Lerp(0.98f, 0.1f, (float)(distanceFromKSC / maxDist));
 
+            if (vessel.landedAt == "LaunchPad" || vessel.landedAt == "Runway") //TODO: Double check these strings
+                recoveryPercent = 1f;
+
             foreach (ProtoPartSnapshot P in vessel.protoPartSnapshots)
             {
                 // recover part
