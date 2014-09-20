@@ -39,6 +39,10 @@ namespace Scrapyard
         {
             List[key] = qty;
         }
+        public void Clear()
+        {
+            List.Clear();
+        }
     }
 
     public class Scrapyard
@@ -75,10 +79,10 @@ namespace Scrapyard
             // Parts
             ConfigNode N = new ConfigNode(this.GetType().FullName);
             ConfigNode p = N.AddNode("PARTS");
-            foreach (string P in Parts.List.Keys.Where(x => Parts.List[x] != 0)) p.AddValue(P, Parts.List[P]);
+            foreach (string P in Parts.Inventory.Keys.Where(x => Parts.Inventory[x] != 0)) p.AddValue(P, Parts.Inventory[P]);
             // Resources, load even if recover_resources = false
             ConfigNode r = N.AddNode("RESOURCES");
-            foreach (string P in Resources.List.Keys.Where(x => Resources.Get(x) != 0)) r.AddValue(P, Resources.List[P]);
+            foreach (string P in Resources.Inventory.Keys.Where(x => Resources.Get(x) != 0)) r.AddValue(P, Resources.Inventory[P]);
 
             root.AddNode(N);
         }
@@ -94,7 +98,7 @@ namespace Scrapyard
             {
                 // Load parts
                 ConfigNode pnode = node.GetNode("PARTS");
-                Parts.List.Clear();
+                Parts.Clear();
                 int qty = 0;
                 foreach (ConfigNode.Value P in pnode.values)
                 {
@@ -103,7 +107,7 @@ namespace Scrapyard
 
                 // Load resources, even if recover_resources = false
                 ConfigNode rnode = node.GetNode("RESOURCES");
-                Resources.List.Clear();
+                Resources.Clear();
                 float Qty = 0;
                 foreach (ConfigNode.Value P in rnode.values)
                 {
@@ -212,7 +216,7 @@ namespace Scrapyard
         public float TotalVesselCostAfterInventory(List<Part> VesselParts)
         {
             float costRefunded = 0, totalCost = 0;
-            Dictionary<string, float> InventoryCopy = new Dictionary<string,float>(Parts.List);
+            Dictionary<string, float> InventoryCopy = new Dictionary<string,float>(Parts.Inventory);
             foreach (Part P in VesselParts)
             {
                 string partName = NameWithTS(P.protoPartSnapshot);
@@ -226,7 +230,7 @@ namespace Scrapyard
                 totalCost += rawPrice;
             }
 
-            Dictionary<string, float> ResourceCopy = new Dictionary<string, float>(Resources.List);
+            Dictionary<string, float> ResourceCopy = new Dictionary<string, float>(Resources.Inventory);
             if (recoverResources)
             {
                 Dictionary<string, double> resources = ListAllResources(VesselParts);
