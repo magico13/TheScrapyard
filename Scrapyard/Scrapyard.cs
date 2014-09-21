@@ -171,20 +171,20 @@ namespace Scrapyard
         /// <param name="vessel"></param>
         public void RecoverVessel(ProtoVessel vessel)
         {
-            //Need to know the distance to cancel out the refund correctly
+         /*   //Need to know the distance to cancel out the refund correctly
             double distanceFromKSC = SpaceCenter.Instance.GreatCircleDistance(SpaceCenter.Instance.cb.GetRelSurfaceNVector(vessel.latitude, vessel.longitude));
             double maxDist = SpaceCenter.Instance.cb.Radius * Math.PI;
             float recoveryPercent = Mathf.Lerp(0.98f, 0.1f, (float)(distanceFromKSC / maxDist));
 
             if (vessel.landedAt == "LaunchPad" || vessel.landedAt == "Runway") //TODO: Double check these strings
-                recoveryPercent = 1f;
+                recoveryPercent = 1f;*/
 
             foreach (ProtoPartSnapshot P in vessel.protoPartSnapshots)
             {
                 // recover part
                 string fullName = NameWithTS(P);
                 Parts.Add(fullName);
-                Funding.Instance.Funds -= (getPartRawPrice(P) * recoveryPercent);
+                Funding.Instance.Funds -= (getPartRawPrice(P));
 
                 // recover part's resources
                 if (recoverResources) foreach (ProtoPartResourceSnapshot res in P.resources)
@@ -195,7 +195,7 @@ namespace Scrapyard
                     if (unitCost != 0)
                     {
                         Resources.Add(res.resourceName, amount);
-                        Funding.Instance.Funds -= (unitCost * amount * recoveryPercent);
+                        Funding.Instance.Funds -= (unitCost * amount);
                     }
                 }
             }
@@ -211,7 +211,7 @@ namespace Scrapyard
                     string rname = R.resourceName;
                     if (result.ContainsKey(rname)) result[rname] += R.amount;
                     else result[rname] = R.amount;
-                    Debug.Log(P.name + "." + R.resourceName + " = " + R.amount);
+                   // Debug.Log(P.name + "." + R.resourceName + " = " + R.amount);
                 }
             }
             return result;
@@ -222,7 +222,7 @@ namespace Scrapyard
             Dictionary<string, float> InventoryCopy = new Dictionary<string,float>(Parts.Inventory);
             foreach (Part P in VesselParts)
             {
-                string partName = NameWithTS(P.protoPartSnapshot);
+                string partName = NameWithTS(P);
                 float rawPrice = getPartRawPrice(P);
                 int qty_in_store = (int)  (InventoryCopy.ContainsKey(partName) ? InventoryCopy[partName] : 0);
                 if (qty_in_store > 0)
@@ -248,10 +248,10 @@ namespace Scrapyard
 
                         if (qty_used > 0)
                         {
-                            ResourceCopy[R] = (qty_in_store - qty_used);
-                            costRefunded += (float)qty_used * price;
+                            ResourceCopy[R] -= qty_used;
+                            costRefunded += qty_used * price;
                         }
-                        totalCost += (qty_used * price);
+                        totalCost += (qty_on_ship * price);
                     }
                 }
             }
@@ -298,7 +298,15 @@ namespace Scrapyard
         }
         public float getPartRawPrice(Part P)
         {
-            return getPartRawPrice(P.protoPartSnapshot);
+            if (P.protoPartSnapshot != null)
+                return getPartRawPrice(P.protoPartSnapshot);
+            float price = P.partInfo.cost;
+            foreach (PartResource resource in P.Resources.list)
+            {
+                float cost = getResourcePrice(resource.resourceName);
+                price -= (float)(cost * resource.maxAmount);
+            }
+            return price + P.GetModuleCosts();
         }
         public float getPartRawPrice(ProtoPartSnapshot P)
         {
@@ -311,7 +319,7 @@ namespace Scrapyard
             return PartLoader.LoadedPartsList.FirstOrDefault(p => p.name == StripTweakScaleInfo(partName));
         }
 
-        //The following is all tweakscale info
+        //The following is all tweakscale related info
         public string GetTweakScaleSize(ConfigNode partNode)
         {
             string partSize = "";
@@ -332,14 +340,35 @@ namespace Scrapyard
         public string GetTweakScaleSize(ProtoPartSnapshot partSnapshot)
         {
             string partSize = "";
-            ProtoPartModuleSnapshot tweakscale = partSnapshot.modules.Find(mod => mod.moduleName == "TweakScale");
-            if (tweakscale != null)
+            if (partSnapshot.modules.Count > 0)
             {
-                ConfigNode tsCN = tweakscale.moduleValues;
-                string defaultScale = tsCN.GetValue("defaultScale");
-                string currentScale = tsCN.GetValue("currentScale");
-                if (!defaultScale.Equals(currentScale))
-                    partSize = currentScale;
+                ProtoPartModuleSnapshot tweakscale = partSnapshot.modules.FirstOrDefault(mod => mod.moduleName == "TweakScale");
+                if (tweakscale != null)
+                {
+                    ConfigNode tsCN = tweakscale.moduleValues;
+                    string defaultScale = tsCN.GetValue("defaultScale");
+                    string currentScale = tsCN.GetValue("currentScale");
+                    if (!defaultScale.Equals(currentScale))
+                        partSize = currentScale;
+                }
+            }
+            return partSize;
+        }
+        public string GetTweakScaleSize(Part part)
+        {
+            string partSize = "";
+            if (part.Modules.Contains("TweakScale"))
+            {
+                PartModule tweakscale = part.Modules["TweakScale"];
+                if (tweakscale != null)
+                {
+                    ConfigNode tsCN = new ConfigNode();
+                    tweakscale.Save(tsCN);
+                    string defaultScale = tsCN.GetValue("defaultScale");
+                    string currentScale = tsCN.GetValue("currentScale");
+                    if (!defaultScale.Equals(currentScale))
+                        partSize = currentScale;
+                }
             }
             return partSize;
         }
@@ -351,6 +380,11 @@ namespace Scrapyard
         {
             string tweakscaleSize = GetTweakScaleSize(PPS);
             return PPS.partInfo.name + (tweakscaleSize != "" ? "," + tweakscaleSize : "");
+        }
+        public string NameWithTS(Part part)
+        {
+            string tweakscaleSize = GetTweakScaleSize(part);
+            return part.partInfo.name + (tweakscaleSize != "" ? "," + tweakscaleSize : "");
         }
         #endregion
     }
